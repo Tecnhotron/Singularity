@@ -3446,7 +3446,42 @@ async function loadUserProfile(userId) {
                 if (modelSelector) modelSelector.value = state.settings.model;
                 if (defaultModel) defaultModel.value = state.settings.model;
 
-                console.warn(`Firestore document for user ${userId} is missing. Consider creating it with basic info upon first login if necessary.`);
+                // === NEW LOGIC TO ADD HERE ===
+                // Create a basic user document because it doesn't exist.
+                const newUserProfileData = {
+                    email: currentUser.email,
+                    name: currentUser.displayName || currentUser.email.split('@')[0] || 'User',
+                    userId: currentUser.uid, // Essential for the rule
+                    createdAt: serverTimestamp(),
+                    lastUpdated: serverTimestamp(),
+                    apiKey: '', 
+                    defaultModel: 'gemini-2.5-pro-preview-05-06',
+                    theme: 'dark'
+                };
+
+                try {
+                    await setDoc(userDocRef, newUserProfileData);
+                    console.log(`Created new basic user profile in Firestore for UID: ${userId}`);
+                    // After creating, update the local state with this initial data
+                    state.user.apiKey = newUserProfileData.apiKey; // Already '' by default from current logic
+                    state.settings.model = newUserProfileData.defaultModel; // Already set by current logic
+                    state.settings.theme = newUserProfileData.theme; // Default theme
+                    // state.user.name and state.user.email are already set from currentUser by the lines above.
+                    // Update UI input fields explicitly if they rely on initial state not yet reflecting Firestore defaults
+                    if (apiKeyInput) apiKeyInput.value = state.user.apiKey;
+                    if (modelSelector) modelSelector.value = state.settings.model;
+                    if (defaultModel) defaultModel.value = state.settings.model;
+                    localStorage.setItem('geminiApiKey', state.user.apiKey);
+                    localStorage.setItem('defaultModel', state.settings.model);
+                    localStorage.setItem('theme', state.settings.theme);
+
+
+                } catch (error) {
+                    console.error(`Error creating new user profile in Firestore for UID: ${userId}`, error);
+                    showToast('Error initializing user profile.', 'error');
+                    // Proceed with default local settings if Firestore creation fails
+                }
+                // === END OF NEW LOGIC ===
             } else {
                 console.error('Critical: Mismatch or no currentUser in loadUserProfile (user document missing). Cannot display user info for UID:', userId);
                 if (userMenuName) userMenuName.textContent = 'Error';
