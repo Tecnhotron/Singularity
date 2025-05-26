@@ -1,87 +1,108 @@
-# Singularity - Backend Implementation Guide
-
-This document provides instructions for setting up and running the Singularity chat application backend.
+# Singularity - Client-Side AI Assistant
 
 ## Overview
 
-The backend is implemented using Flask and Firebase as requested. The key features include:
+Singularity is a web-based AI chat application that leverages the power of Google Gemini models to provide an intelligent and interactive user experience. All core logic runs directly in the user's browser, with Firebase providing backend services for authentication and data storage.
 
-1. Chat creation and management
-2. Message handling with Gemini API integration
-3. User settings and API key management
-4. Prompt Gems system
-5. Fixed chat creation behavior (new chat is created when typing in input box on a new page)
+## Features
 
-## Setup Instructions
+*   **Chat Interface:** Intuitive and responsive interface for interacting with the AI.
+*   **User Authentication:** Secure user login and registration using Firebase Authentication.
+*   **Chat History:** Stores and retrieves chat conversations using Firebase Firestore.
+*   **Prompt Gems:** Users can create and customize their own 'Prompt Gems' (personas with system prompts), which are stored in Firebase Firestore. Pre-defined templates are also available to kickstart conversations and explore AI capabilities.
+*   **User Settings:** Allows users to customize their experience, including managing their API key.
+*   **Image Generation:** Generate images based on text prompts.
+*   **Document Generation:** Create documents based on AI responses.
+*   **Tool Integration (Web Search, Browsing, Image/Document Generation):** Partially implemented. Users can toggle these tools, which modifies parameters sent to the Gemini API.
+*   **File Uploads:** Allow users to upload files for AI processing.
+
+## Tech Stack
+
+*   **Frontend:** HTML, CSS, JavaScript
+*   **Artificial Intelligence:** Google Gemini API
+*   **Backend:** Firebase Authentication, Firebase Firestore
+*   **Server:** Python Flask (for serving static files)
+
+## Setup and Running Instructions
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- Firebase account with Firestore database
-- Gemini API key
+*   A modern web browser (Chrome, Firefox, Safari, Edge).
+*   A Google Account.
+*   A Google Gemini API Key.
 
-### Installation
+### Firebase Setup
 
-1. Install the required Python packages:
-
-```bash
-cd backend
-pip install -r requirements.txt
-```
-
-2. Configure Firebase:
-   - Create a Firebase project in the Firebase console
-   - Set up Firestore database
-   - Generate a service account key and replace the placeholder in `firebase-key.json`
-
-3. Configure Gemini API:
-   - Get an API key from Google AI Studio
-   - Update the API_KEY variable in `app.py` or use the settings UI
+1.  Create a new project on the [Firebase Console](https://console.firebase.google.com/).
+2.  Enable Firebase Authentication:
+    *   Go to Authentication -> Sign-in method.
+    *   Enable the "Email/Password" provider.
+3.  Enable Firebase Firestore:
+    *   Go to Firestore Database -> Create database.
+    *   Start in "test mode" for initial development (ensure you understand the security implications before production).
+4.  Obtain Firebase Configuration:
+    *   Go to Project settings (gear icon next to Project Overview).
+    *   Under "Your apps", click on the web icon (`</>`) to register a new web app.
+    *   Copy the `firebaseConfig` object.
+5.  Configure the application:
+    *   Update the existing `js/firebase-config.js` file.
+    *   Paste the copied `firebaseConfig` object into this file, ensuring it matches the structure below, and replace the placeholder values with your actual Firebase project configuration:
+        ```javascript
+        const firebaseConfig = {
+          apiKey: "YOUR_API_KEY",
+          authDomain: "YOUR_AUTH_DOMAIN",
+          projectId: "YOUR_PROJECT_ID",
+          storageBucket: "YOUR_STORAGE_BUCKET",
+          messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+          appId: "YOUR_APP_ID"
+        };
+        ```
+    *   **Important:** Replace the placeholder values with your actual Firebase project configuration.
 
 ### Running the Application
 
-Start the Flask server:
+1.  **Set up your Gemini API Key:**
+    *   After logging into the application, navigate to the "Settings" page.
+    *   Enter your Google Gemini API Key in the designated field and save.
+2.  **Start the Server:**
+    *   Ensure you have Python installed.
+    *   Open your terminal or command prompt.
+    *   Navigate to the project's root directory.
+    *   Run the command: `python server.py`
+    *   This will typically start a local server at `http://127.0.0.1:7860`.
+3.  Open your web browser and navigate to the address provided by the server (e.g., `http://127.0.0.1:7860`).
 
-```bash
-cd backend
-python app.py
-```
+## Project Structure
 
-The application will be available at http://localhost:5000
+*   `index.html`: The main chat interface.
+*   `login.html`: The user login and registration page.
+*   `css/style.css`: Stylesheets for the application.
+*   `js/script.js`: Core JavaScript logic for the chat interface, Gemini API interaction, and Firebase integration.
+*   `js/firebase-config.js`: Firebase project configuration (you need to update this).
+*   `js/login.js`: JavaScript for user login logic.
+*   `js/register.js`: JavaScript for user registration logic.
+*   `js/image-generator.js`: JavaScript for image generation functionality.
+*   `js/document-generator.js`: JavaScript for document generation functionality.
+*   `server.py`: Simple Python Flask server to serve static files.
+*   `LICENSE`: Project license file.
+*   `README.md`: This file.
 
-## Implementation Details
+## How it Works
 
-### Backend Structure
+Singularity is designed with a client-centric architecture.
+*   **Client-Side Logic:** The majority of the application's logic, including user interface management, API calls to Google Gemini, and interaction with Firebase services, runs directly in the user's web browser (primarily in `js/script.js`, `js/login.js`, `js/register.js`, etc.).
+*   **Firebase for Backend:**
+    *   Firebase Authentication is used for user sign-up and login.
+    *   Firebase Firestore is used to store and retrieve user chat history and custom Prompt Gems.
+*   **Gemini API Calls:** AI-powered responses are obtained by making direct calls to the Google Gemini API from the client-side JavaScript. The user's API key is managed through the settings and, for authenticated users, is stored in Firebase Firestore and cached in `localStorage` for convenience.
+*   **Python Flask Server:** The `server.py` script provides a lightweight HTTP server to serve the HTML, CSS, and JavaScript files to the browser. It does not handle any core application logic or API requests.
 
-- `app.py`: Main Flask application with all API endpoints
-- `requirements.txt`: Python dependencies
-- `firebase-key.json`: Firebase service account key (placeholder)
+## Customization/Development
 
-### API Endpoints
+*   **Firebase Configuration:** The primary point of configuration is `js/firebase-config.js`. You *must* update this file with your Firebase project's specific configuration details.
+*   **Prompt Gems:** Default prompt gem templates are defined within `js/script.js`. Users can also create their own, which are stored in Firestore.
+*   To add new features or modify existing behavior, you will primarily work with the HTML files for structure, `css/style.css` for presentation, and the JavaScript files (e.g., `js/script.js`, `js/login.js`, `js/register.js`, `js/image-generator.js`, `js/document-generator.js`) for application logic.
 
-- `/api/chats`: GET (list chats), POST (create chat)
-- `/api/chats/<chat_id>`: GET (get chat details)
-- `/api/chats/<chat_id>/messages`: POST (add message)
-- `/api/settings`: GET (get settings), POST (update settings)
-- `/api/gems`: GET (get prompt gems)
-- `/api/new-chat`: POST (create new chat with initial message)
+## License
 
-### Frontend Integration
-
-The frontend JavaScript has been modified to:
-1. Create a new chat when typing in the input box on a new page
-2. Maintain persistent chat history
-3. Support the Prompt Gems system
-4. Handle API key configuration
-
-## Customization
-
-- Update the Firebase configuration in `firebase-key.json`
-- Modify the default Prompt Gems in the `get_gems` endpoint
-- Adjust the Gemini API parameters in the `generate_ai_response` function
-
-## Notes
-
-- The login page is excluded from the backend implementation as requested
-- The UI remains unchanged as specified
-- The chat creation behavior is fixed to create a new chat when typing in the input box on a new page
+This project is licensed under the terms of the LICENSE file.
