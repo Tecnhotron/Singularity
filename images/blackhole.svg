@@ -1,0 +1,28 @@
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="blackholeGradient" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+      <stop offset="0%" stop-color="#000000" />
+      <stop offset="40%" stop-color="#0f0f1a" />
+      <stop offset="60%" stop-color="#1a0f1a" />
+      <stop offset="100%" stop-color="#000000" />
+    </radialGradient>
+    <radialGradient id="accretionDiskGradient" cx="50%" cy="50%" r="70%" fx="50%" fy="50%">
+      <stop offset="60%" stop-color="rgba(255, 140, 0, 0)" />
+      <stop offset="70%" stop-color="rgba(255, 140, 0, 0.7)" />
+      <stop offset="75%" stop-color="rgba(255, 69, 0, 0.8)" />
+      <stop offset="80%" stop-color="rgba(255, 165, 0, 0.9)" />
+      <stop offset="85%" stop-color="rgba(255, 215, 0, 1)" />
+      <stop offset="90%" stop-color="rgba(255, 255, 255, 0.8)" />
+      <stop offset="100%" stop-color="rgba(255, 255, 255, 0)" />
+    </radialGradient>
+  </defs>
+  
+  <!-- Stars background -->
+  <rect width="100" height="100" fill="#0a0a14" />
+  
+  <!-- Accretion disk -->
+  <ellipse cx="50" cy="50" rx="45" ry="15" fill="url(#accretionDiskGradient)" transform="rotate(30, 50, 50)" />
+  
+  <!-- Black hole -->
+  <circle cx="50" cy="50" r="20" fill="url(#blackholeGradient)" />
+</svg>
