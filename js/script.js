@@ -12,7 +12,7 @@ import { generateImage, isImageGenerationAvailable } from './image-generator.js'
 import { imageGenerationTool, processToolCalls } from './image-tool.js';
 import { documentGenerationTool } from './document-tool.js';
 import { createImageLoadingPlaceholder, createImageResultHTML } from './image-utils.js';
-import { createDocumentLoadingPlaceholder, createDocumentResultHTML } from './document-utils.js';
+import { createDocumentLoadingPlaceholder, createDocumentResultHTML, escapeHTML } from './document-utils.js';
 
 // Determine current page
 const currentPage = window.location.pathname.split('/').pop() || 'index.html';
@@ -105,6 +105,7 @@ const state = {
     user: {
         name: '', // Initialize as empty
         email: '', // Initialize as empty
+        // WARNING: Storing API keys in localStorage is vulnerable to XSS. Ensure robust XSS mitigation throughout the application. The security of this key also relies on strict Firebase Security Rules if synced to Firestore.
         apiKey: localStorage.getItem('geminiApiKey') || '',
         profilePicUrl: '', // Initialize as empty
     },
@@ -315,7 +316,7 @@ async function fetchDailyQuote() {
     
     if (!quoteText || !quoteAuthor) return;
     
-    // Local quotes collection to use when API is unavailable
+    // Local quotes collection
     const localQuotes = [
         { q: "The best way to predict the future is to create it.", a: "Peter Drucker" },
         { q: "Innovation distinguishes between a leader and a follower.", a: "Steve Jobs" },
@@ -343,28 +344,6 @@ async function fetchDailyQuote() {
             return;
         }
         
-        // Try to fetch from API first (without CORS proxy)
-        try {
-            const response = await fetch('https://zenquotes.io/api/random', { mode: 'no-cors' });
-            // If we get here with no-cors, we can't actually read the response data due to CORS restrictions
-            // This will throw an error and we'll fall back to local quotes
-            const data = await response.json();
-            
-            if (data && data.length > 0) {
-                const quote = data[0];
-                quoteText.textContent = quote.q;
-                quoteAuthor.textContent = quote.a;
-                
-                // Store the quote for today
-                localStorage.setItem('dailyQuote', JSON.stringify(quote));
-                localStorage.setItem('dailyQuoteDate', today);
-                return;
-            }
-        } catch (apiError) {
-            console.log('API fetch failed, using local quotes instead');
-            // Continue to local quotes if API fails
-        }
-        
         // Use a random quote from our local collection
         const randomIndex = Math.floor(Math.random() * localQuotes.length);
         const randomQuote = localQuotes[randomIndex];
@@ -377,8 +356,8 @@ async function fetchDailyQuote() {
         localStorage.setItem('dailyQuoteDate', today);
         
     } catch (error) {
-        console.error('Error handling quote:', error);
-        // Fallback to default quote
+        console.error('Error handling local quote:', error);
+        // Fallback to default quote if local storage fails or quote data is corrupt
         quoteText.textContent = 'Wisdom is the reward of experience and should be shared.';
         quoteAuthor.textContent = 'Singularity';
     }
@@ -1002,6 +981,10 @@ async function handleSendMessage() {
                 chatTitle = 'New Chat';
             }
             
+            if (!chatTitle || chatTitle.trim() === '') { // Ensure chatTitle is not empty
+                chatTitle = 'New Chat';
+            }
+
             // Create a new chat in Firebase with fallback to localStorage
             currentChatId = await createFirebaseChat(chatTitle);
             state.chat.currentChatId = currentChatId;
@@ -1105,28 +1088,26 @@ function addMessageToUI(role, content) {
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-text';
     
-    // Only parse markdown for AI messages, but render LaTeX for both AI and user messages
     if (role === 'ai') {
         // Check if the content is likely pre-formatted HTML for an image or document
         if (typeof content === 'string' && (
             content.startsWith('<div class="generated-image-container">') ||
             content.startsWith('<div class="generated-document-container">')
         )) {
-            contentDiv.innerHTML = content; // Directly insert HTML for images and documents
+            // These are already constructed with escapeHTML for dynamic parts
+            contentDiv.innerHTML = content; 
         } else {
-            // Convert markdown to HTML using marked.js for text messages
-            contentDiv.innerHTML = marked.parse(content);
+            // For AI text messages, parse markdown then sanitize with DOMPurify
+            contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(content));
             
             // Process any code blocks with Prism.js for syntax highlighting
             contentDiv.querySelectorAll('pre code').forEach((block) => {
                 Prism.highlightElement(block);
             });
         }
-
-
-    } else {
-        // For user messages, just render the content directly without markdown parsing
-        contentDiv.innerHTML = content;
+    } else { // User messages
+        // For user messages, use textContent to prevent XSS (already implemented)
+        contentDiv.textContent = content;
     }
     
     // Trigger MathJax to render any LaTeX equations for both AI and user messages
@@ -1759,7 +1740,7 @@ async function saveSettings() {
         theme: state.settings.theme
     });
     
-    // Save to localStorage for immediate use
+    // SECURITY NOTE: Saving API key to localStorage is vulnerable to XSS. If saving to Firestore, ensure Firebase Security Rules strictly limit access to this key to the authenticated user only.
     localStorage.setItem('geminiApiKey', state.user.apiKey);
     localStorage.setItem('defaultModel', state.settings.model);
     localStorage.setItem('theme', state.settings.theme);
@@ -1847,6 +1828,7 @@ function showToast(message, duration = 3000) {
 
 // --- Gemini API Chat Completion with Streaming ---
 async function getGeminiResponse(userMessage) {
+    // Ensure state.user.apiKey is handled securely and obtained from a trusted source (user input, then potentially Firestore protected by strong rules).
     if (!state.user.apiKey) {
         console.error('API Key is missing. Cannot make API call.');
         hideThinkingIndicator();
@@ -2227,52 +2209,6 @@ async function getGeminiResponse(userMessage) {
         console.error('Error connecting to Gemini API:', error);
         return `Error: ${error.message}`;
     }
-}
-
-// Helper function to split text into chunks to simulate streaming
-function simulateStreamingChunks(text) {
-    // Handle different types of content with different chunk sizes
-    const codeBlocks = text.match(/```[\s\S]*?```/g) || [];
-    const nonCodeParts = text.split(/```[\s\S]*?```/);
-    
-    const chunks = [];
-    
-    for (let i = 0; i < nonCodeParts.length; i++) {
-        // Process non-code part
-        const part = nonCodeParts[i];
-        if (part) {
-            // Split non-code parts into smaller chunks (by sentences or small groups of words)
-            const sentences = part.match(/[^.!?\n]+[.!?\n]+/g) || [part];
-            for (const sentence of sentences) {
-                // Further divide longer sentences
-                if (sentence.length > 50) {
-                    const words = sentence.split(' ');
-                    let tempChunk = '';
-                    
-                    for (const word of words) {
-                        tempChunk += word + ' ';
-                        if (tempChunk.length > 30) {
-                            chunks.push(tempChunk);
-                            tempChunk = '';
-                        }
-                    }
-                    
-                    if (tempChunk) {
-                        chunks.push(tempChunk);
-                    }
-                } else {
-                    chunks.push(sentence);
-                }
-            }
-        }
-        
-        // Add code block as a single chunk (don't split code blocks)
-        if (i < codeBlocks.length) {
-            chunks.push(codeBlocks[i]);
-        }
-    }
-    
-    return chunks;
 }
 
 // --- Optional: Model Info functions (not directly used in UI, but provided) ---
@@ -2793,6 +2729,7 @@ async function addFirebaseChatMessage(chatId, message) {
                 
                 if (!chatDoc.exists()) {
                     console.warn(`Chat ${chatId} does not exist in Firebase, falling back to localStorage`);
+                    showToast('Failed to save message to cloud. Saved locally.', 'warning');
                     addLocalChatMessage(chatId, message);
                     resolve();
                     return;
@@ -2817,6 +2754,7 @@ async function addFirebaseChatMessage(chatId, message) {
                 
             } catch (error) {
                 console.error('Error in background message save:', error);
+                showToast('Failed to save message to cloud. Saved locally.', 'warning');
                 // Fall back to local storage on error
                 addLocalChatMessage(chatId, message);
                 resolve();
@@ -3561,7 +3499,7 @@ function showPdfPreview(file) {
     pdfInfo.className = 'pdf-info';
     pdfInfo.innerHTML = `
         <span class="material-symbols-rounded">picture_as_pdf</span>
-        <span class="pdf-name">${file.name}</span>
+        <span class="pdf-name">${escapeHTML(file.name)}</span>
         <span class="pdf-size">(${formatFileSize(file.size)})</span>
     `;
     

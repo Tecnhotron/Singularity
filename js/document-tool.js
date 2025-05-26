@@ -26,15 +26,11 @@ export const documentGenerationTool = {
 export async function handleDocumentGenerationToolCall(toolCall, apiKey) {
   try {
     // Extract the parameters from the tool call
-    // Handle both formats: args and arguments
     let content, title;
     if (toolCall.functionCall.args) {
-      // Format: { args: { content: "...", title: "..." } }
       content = toolCall.functionCall.args.content;
       title = toolCall.functionCall.args.title;
     } else if (toolCall.functionCall.arguments) {
-      // Format: { arguments: "{\"content\":\"...\",\"title\":\"...\"}"
-      // Check if it's already an object or a string that needs parsing
       if (typeof toolCall.functionCall.arguments === 'string') {
         const params = JSON.parse(toolCall.functionCall.arguments);
         content = params.content;
@@ -57,35 +53,42 @@ export async function handleDocumentGenerationToolCall(toolCall, apiKey) {
     
     console.log(`Generating document with content length: ${content.length}`);
     
-    // Generate the document using our function - now does direct generation without additional API call
+    // Generate the document using our function - it now returns a blob
     const result = await generateDocument(content, title, apiKey);
     
-    // Return the result in the format expected by the Gemini API
-    if (result.success) {
-      // Create a properly formatted document result that will render correctly in the chat
+    if (result.success && result.docBlob) {
+      const docUrl = URL.createObjectURL(result.docBlob);
+      const documentTitleToUse = result.documentTitle || title || 'Generated Document';
+      
+      const htmlContent = createDocumentResultHTML(docUrl, result.message, documentTitleToUse);
+
+      // Revoke the object URL after a delay to allow the user to download
+      setTimeout(() => {
+        URL.revokeObjectURL(docUrl);
+        console.log(`Revoked object URL for document: ${documentTitleToUse}`);
+      }, 60000); // 1 minute delay
+
       return {
         name: toolCall.functionCall.name,
         content: {
-          documentUrl: result.documentUrl,
-          documentTitle: result.documentTitle,
-          text: `I've created a document titled "${result.documentTitle || 'Generated Document'}" based on your content.`,
-          // Use the existing createDocumentResultHTML function from document-utils.js
-          html: createDocumentResultHTML(result.documentUrl, result.message, result.documentTitle || title || 'Generated Document')
+          documentUrl: docUrl, // This URL is now temporary
+          documentTitle: documentTitleToUse,
+          text: `I've created a document titled "${documentTitleToUse}" based on your content.`,
+          html: htmlContent 
         }
       };
     } else {
-      // Handle error case
+      // Handle error case from generateDocument or if docBlob is missing
       return {
         name: toolCall.functionCall.name,
         content: {
-          error: result.error || "An error occurred while generating the document."
+          error: result.error || "An error occurred while generating the document blob."
         }
       };
     }
   } catch (error) {
     console.error("Error in document generation tool:", error);
     
-    // Return error information
     return {
       name: toolCall.functionCall.name,
       content: {
