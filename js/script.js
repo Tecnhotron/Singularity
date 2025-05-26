@@ -1794,8 +1794,21 @@ async function saveSettings() {
                     name: currentUser ? (currentUser.displayName || state.user.name) : state.user.name,
                     createdAt: serverTimestamp(),
                     lastUpdated: serverTimestamp()
+                    // userId will be added below
                 };
                 
+                // Add userId to userData
+                if (currentUser) { // Check if currentUser is available
+                    userData.userId = currentUser.uid;
+                } else if (state.userId) { // Fallback to state.userId if currentUser is null
+                    userData.userId = state.userId;
+                     console.warn('currentUser was null during new user document creation in saveSettings. Used state.userId.');
+                } else {
+                    console.error('CRITICAL: Cannot set userId in new user document: currentUser and state.userId are both null. Firestore write will likely fail.');
+                    // Firestore rules require userId, so this operation would fail.
+                    // Depending on desired behavior, could throw error or skip setDoc.
+                }
+
                 await setDoc(userDocRef, userData);
                 console.log('New user document created in Firestore successfully');
             }
@@ -2773,16 +2786,30 @@ async function addFirebaseChatMessage(chatId, message) {
     return new Promise((resolve) => {
         // Run in the next tick to prevent blocking
         setTimeout(async () => {
+            const fallbackToLocal = (reason, originalMessage) => {
+                console.warn(`Falling back to local storage for chat ${chatId}: ${reason}`);
+                const localMessage = {
+                    ...originalMessage,
+                    userId: auth.currentUser ? auth.currentUser.uid : 'local-user', // Ensure userId for local
+                    timestamp: new Date().toISOString() // Client-generated ISO timestamp for local
+                };
+                addLocalChatMessage(chatId, localMessage);
+                resolve();
+            };
+
             try {
-                message.timestamp = new Date().toISOString();
-                
-                // If user is not logged in or chat has a local ID, fall back to local storage
-                if (!auth.currentUser || chatId.startsWith('local-chat-')) {
-                    console.log(`Using localStorage for message in chat ${chatId}`);
-                    addLocalChatMessage(chatId, message);
-                    resolve();
+                // If user is not logged in or chat ID indicates it's a local chat, use local storage
+                if (!auth.currentUser || (chatId && typeof chatId === 'string' && chatId.startsWith('local-chat-'))) {
+                    fallbackToLocal(`User not authenticated or local chat ID (${chatId})`, message);
                     return;
                 }
+
+                // Prepare message for Firestore
+                const firestoreMessage = {
+                    ...message,
+                    userId: auth.currentUser.uid, // Add userId
+                    timestamp: serverTimestamp() // Use serverTimestamp for Firestore
+                };
                 
                 // Generate a unique ID for the message
                 const messageId = 'msg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 15);
@@ -2792,34 +2819,34 @@ async function addFirebaseChatMessage(chatId, message) {
                 const chatDoc = await getDoc(chatDocRef);
                 
                 if (!chatDoc.exists()) {
-                    console.warn(`Chat ${chatId} does not exist in Firebase, falling back to localStorage`);
-                    addLocalChatMessage(chatId, message);
-                    resolve();
+                    fallbackToLocal(`Chat ${chatId} does not exist in Firebase`, message);
                     return;
                 }
                 
                 // Add message to Firebase using setDoc with a specific ID
-                await setDoc(doc(db, 'chats', chatId, 'messages', messageId), message);
+                await setDoc(doc(db, 'chats', chatId, 'messages', messageId), firestoreMessage);
                 
-                // Update chat timestamp
+                // Update chat timestamp (using serverTimestamp for consistency if preferred, or ISO string)
                 await updateDoc(doc(db, 'chats', chatId), {
-                    lastUpdatedAt: new Date().toISOString()
+                    lastUpdatedAt: serverTimestamp() // Or new Date().toISOString()
                 });
                 
                 // Update the UI state in the next tick
+                // Note: The message object in state should ideally have a resolved timestamp.
+                // For simplicity here, we push the original message; consider fetching it or using a temporary client ts.
                 requestAnimationFrame(() => {
                     if (chatId === state.chat.currentChatId) {
                         state.chat.messages = state.chat.messages || [];
-                        state.chat.messages.push(message);
+                        // For UI consistency, use a client timestamp for the immediate display
+                        const displayMessage = { ...message, timestamp: new Date().toISOString(), userId: auth.currentUser.uid };
+                        state.chat.messages.push(displayMessage);
                     }
                     resolve();
                 });
                 
             } catch (error) {
-                console.error('Error in background message save:', error);
-                // Fall back to local storage on error
-                addLocalChatMessage(chatId, message);
-                resolve();
+                console.error('Error in Firebase message save:', error);
+                fallbackToLocal(`Error saving to Firebase: ${error.message}`, message);
             }
         }, 0);
     });
@@ -2959,14 +2986,39 @@ function updateLocalChatTimestamp(chatId) {
 // Helper function to add a message to a chat
 function addLocalChatMessage(chatId, message) {
     const messages = getLocalChatMessages(chatId);
-    message.timestamp = new Date().toISOString();
+
+    // Ensure userId is present, default if necessary
+    if (!message.userId) {
+        message.userId = auth.currentUser ? auth.currentUser.uid : 'local-user';
+        console.warn(`Message for chat ${chatId} was missing userId. Defaulted to: ${message.userId}`);
+    }
+
+    // Ensure timestamp is an ISO string
+    // Firestore serverTimestamp() is an object, client-side might be Date object or already string.
+    if (message.timestamp && typeof message.timestamp.toDate === 'function') { // Firestore Timestamp object
+        message.timestamp = message.timestamp.toDate().toISOString();
+    } else if (message.timestamp instanceof Date) { // JavaScript Date object
+        message.timestamp = message.timestamp.toISOString();
+    } else if (typeof message.timestamp !== 'string') { // Fallback for other types or serverTimestamp sentinel
+        console.warn(`Message for chat ${chatId} had an unexpected timestamp type. Resetting to current time.`);
+        message.timestamp = new Date().toISOString();
+    } else {
+        // If it's already a string, assume it's correctly formatted (e.g., from a previous local save or API)
+    }
+
+
     messages.push(message);
     saveLocalChatMessages(chatId, messages);
 
     // If the message is for the currently active chat, update the state as well
     if (chatId === state.chat.currentChatId) {
-        state.chat.messages.push(message);
+        // Ensure the message object added to state.chat.messages is consistent
+        if (!state.chat.messages) {
+            state.chat.messages = [];
+        }
+        state.chat.messages.push(message); // message already has ISO timestamp and userId
     }
+    console.log(`Message added locally to chat ${chatId}:`, message);
 }
 
 // Helper function to delete a chat and its messages
